@@ -1,14 +1,13 @@
 package net.engawapg.app.coffeecanvas
 
-import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.EaseInQuad
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.updateTransition
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
@@ -25,7 +24,6 @@ import androidx.compose.ui.res.imageResource
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 import kotlin.math.min
 
 private val FRAME_SIZE = Size(500f, 650f)
@@ -40,30 +38,79 @@ private val COFFEE_COLOR = Color(0xb4280A00)
 internal fun Size.toInt() = IntSize(width.toInt(), height.toInt())
 internal fun Offset.toInt() = IntOffset(x.toInt(), y.toInt())
 
+enum class DripState {
+    WAITING,
+    POURING,
+    FINISHED,
+}
+
 @Composable
 fun CoffeeScreen() {
+    var dripState by remember { mutableStateOf(DripState.WAITING) }
+    LaunchedEffect(true) {
+        var counter = 0
+        while (true) {
+            delay(1000)
+            counter++
+            when(counter) {
+                1 -> dripState = DripState.POURING
+                3 -> dripState = DripState.FINISHED
+                4 -> {
+                    dripState = DripState.WAITING
+                    counter = 0
+                }
+            }
+        }
+    }
+    CoffeeCanvas(dripState)
+}
+
+private class CoffeeTransitionData(
+    potAngle: State<Float>,
+    waterTop: State<Float>,
+    waterBottom: State<Float>,
+) {
+    val potAngle by potAngle
+    val waterTop by waterTop
+    val waterBottom by waterBottom
+}
+
+@Composable
+private fun updateCoffeeTransitionData(dripState: DripState): CoffeeTransitionData {
+    val transition = updateTransition(dripState, "DripStateTransition")
+
+    val potAngle = transition.animateFloat(
+        label = "PotAngleAnimation",
+        transitionSpec = { tween(500) }
+    ) { state ->
+        if (state == DripState.POURING) -30f else 0f
+    }
+
+    val waterTop = transition.animateFloat(
+        label = "WaterTopAnimation",
+        transitionSpec = { tween(durationMillis = 250, easing = EaseInQuad) }
+    ) { state ->
+        if (state == DripState.FINISHED) WATER_RECT.bottom else WATER_RECT.top - WATER_WIDTH
+    }
+
+    val waterBottom = transition.animateFloat(
+        label = "WaterBottomAnimation",
+        transitionSpec = { tween(durationMillis = 250, easing = EaseInQuad) }
+    ) { state ->
+        if (state == DripState.WAITING) WATER_RECT.top - WATER_WIDTH else WATER_RECT.bottom
+    }
+
+    return remember(transition) {
+        CoffeeTransitionData(potAngle, waterTop, waterBottom)
+    }
+}
+
+@Composable
+fun CoffeeCanvas(dripState: DripState) {
+    val transitionData = updateCoffeeTransitionData(dripState = dripState)
     val potImage = ImageBitmap.imageResource(id = R.drawable.pot)
     val dripperImage = ImageBitmap.imageResource(id = R.drawable.dripper)
     val serverImage = ImageBitmap.imageResource(id = R.drawable.server)
-    val potAngle = remember { Animatable(0f) }
-    val waterBottom = remember { Animatable(WATER_RECT.top - WATER_WIDTH) }
-    val waterTop = remember { Animatable(WATER_RECT.top - WATER_WIDTH) }
-    LaunchedEffect(potAngle, waterBottom, waterTop) {
-        launch {
-            delay(500)
-            potAngle.animateTo(-30f, animationSpec = tween(500))
-            delay(1000)
-            potAngle.animateTo(0f, animationSpec = tween(500))
-        }
-        launch {
-            delay(700)
-            waterBottom.animateTo(WATER_RECT.bottom, animationSpec = tween(durationMillis = 250, easing = EaseInQuad))
-        }
-        launch {
-            delay(2200)
-            waterTop.animateTo(WATER_RECT.bottom, animationSpec = tween(durationMillis = 250, easing = EaseInQuad))
-        }
-    }
     Canvas(
         modifier = Modifier
             .fillMaxSize()
@@ -74,7 +121,7 @@ fun CoffeeScreen() {
             translate(left = center.x - FRAME_SIZE.center.x, top = center.y - FRAME_SIZE.center.y)
             scale(scale, scale, pivot = FRAME_SIZE.center)
         }) {
-            clipRect(top = waterTop.value, bottom = waterBottom.value) {
+            clipRect(top = transitionData.waterTop, bottom = transitionData.waterBottom) {
                 val path = Path().apply {
                     moveTo(POT_RECT.center.x, POT_RECT.center.y)
                     relativeQuadraticBezierTo(WATER_RECT.width * 0.7f, 0f, WATER_RECT.width, WATER_RECT.height)
@@ -89,7 +136,7 @@ fun CoffeeScreen() {
             }
 
             rotate(
-                degrees = potAngle.value,
+                degrees = transitionData.potAngle,
                 pivot = POT_RECT.center
             ) {
                 drawImage(
