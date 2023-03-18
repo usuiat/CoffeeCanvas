@@ -1,9 +1,6 @@
 package net.engawapg.app.coffeecanvas
 
-import androidx.compose.animation.core.EaseInQuad
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.core.updateTransition
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.fillMaxSize
@@ -15,9 +12,8 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.geometry.center
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.graphics.PointMode
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.res.imageResource
@@ -25,15 +21,19 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import kotlinx.coroutines.delay
 import kotlin.math.min
+import kotlin.math.sin
 
 private val FRAME_SIZE = Size(500f, 650f)
 private val POT_RECT = Rect(Offset(-110f, -10f), Size(558f, 374f))
-private val WATER_RECT = Rect(Offset(133f, 174f), Size(-43f, 228f))
 private val DRIPPER_RECT = Rect(Offset(32f, 402f), Size(185f, 98f))
+private val WATER_RECT = Rect(
+    top = POT_RECT.center.y, bottom = DRIPPER_RECT.center.y,
+    left = DRIPPER_RECT.center.x, right = POT_RECT.center.x
+)
 private val SERVER_RECT = Rect(Offset(26f, 500f), Size(226f, 150f))
 private const val WATER_WIDTH = 8f
 private val BG_COLOR = Color(0xffFFF6E9)
-private val COFFEE_COLOR = Color(0xb4280A00)
+private val WATER_COLOR = Color(0xffD1C9C7)
 
 internal fun Size.toInt() = IntSize(width.toInt(), height.toInt())
 internal fun Offset.toInt() = IntOffset(x.toInt(), y.toInt())
@@ -88,14 +88,24 @@ private fun updateCoffeeTransitionData(dripState: DripState): CoffeeTransitionDa
 
     val waterTop = transition.animateFloat(
         label = "WaterTopAnimation",
-        transitionSpec = { tween(durationMillis = 250, easing = EaseInQuad) }
+        transitionSpec = {
+            if (DripState.POURING isTransitioningTo DripState.FINISHED)
+                tween(durationMillis = 250, easing = EaseInQuad)
+            else
+                snap()
+        }
     ) { state ->
         if (state == DripState.FINISHED) WATER_RECT.bottom else WATER_RECT.top - WATER_WIDTH
     }
 
     val waterBottom = transition.animateFloat(
         label = "WaterBottomAnimation",
-        transitionSpec = { tween(durationMillis = 250, easing = EaseInQuad) }
+        transitionSpec = {
+            if (DripState.WAITING isTransitioningTo DripState.POURING)
+                tween(durationMillis = 250, delayMillis = 200, easing = EaseInQuad)
+            else
+                snap()
+        }
     ) { state ->
         if (state == DripState.WAITING) WATER_RECT.top - WATER_WIDTH else WATER_RECT.bottom
     }
@@ -111,6 +121,16 @@ fun CoffeeCanvas(dripState: DripState) {
     val potImage = ImageBitmap.imageResource(id = R.drawable.pot)
     val dripperImage = ImageBitmap.imageResource(id = R.drawable.dripper)
     val serverImage = ImageBitmap.imageResource(id = R.drawable.server)
+
+    // Time counter for water flow physical simulation.
+    var time by remember { mutableStateOf(0) }
+    LaunchedEffect(true) {
+        while (true) {
+            delay(20)
+            time++
+        }
+    }
+
     Canvas(
         modifier = Modifier
             .fillMaxSize()
@@ -121,19 +141,14 @@ fun CoffeeCanvas(dripState: DripState) {
             translate(left = center.x - FRAME_SIZE.center.x, top = center.y - FRAME_SIZE.center.y)
             scale(scale, scale, pivot = FRAME_SIZE.center)
         }) {
-            clipRect(top = transitionData.waterTop, bottom = transitionData.waterBottom) {
-                val path = Path().apply {
-                    moveTo(POT_RECT.center.x, POT_RECT.center.y)
-                    relativeQuadraticBezierTo(WATER_RECT.width * 0.7f, 0f, WATER_RECT.width, WATER_RECT.height)
-                    moveTo(POT_RECT.center.x, POT_RECT.center.y)
-                    relativeLineTo(10f, -3f)
-                }
-                drawPath(
-                    path = path,
-                    color = COFFEE_COLOR,
-                    style = Stroke(WATER_WIDTH)
-                )
-            }
+            drawWaterFlow(
+                start = WATER_RECT.topRight,
+                end = WATER_RECT.bottomLeft,
+                width = WATER_WIDTH,
+                color = WATER_COLOR,
+                transitionData = transitionData,
+                time = time
+            )
 
             rotate(
                 degrees = transitionData.potAngle,
@@ -157,4 +172,57 @@ fun CoffeeCanvas(dripState: DripState) {
             )
         }
     }
+}
+
+private fun DrawScope.drawWaterFlow(
+    start: Offset,
+    end: Offset,
+    width: Float,
+    color: Color,
+    transitionData: CoffeeTransitionData,
+    time: Int
+) {
+    // Draw a water flow. To create fluctuation in width, draw two lines with different phases.
+    val waterYRange = transitionData.waterTop .. transitionData.waterBottom
+    val nPoints = 30
+    // Definition of coefficients / A2 * n^2 + A1 * n + A0
+    val xA0 = start.x
+    val xA1 = (end.x - start.x) / nPoints
+    val yA0 = start.y
+    val yA2 = (end.y - start.y) / nPoints / nPoints
+
+    val theta1 = 0.3f * time // Phase of fluctuation
+    val points1 = (0..nPoints).map { n -> Offset(
+        x = xA0 + xA1 * n + sin(0.3f * n - theta1) * (1f + n.toFloat() / nPoints),
+        y = yA0 + yA2 * n * n
+    ) }.filter { it.y in waterYRange }
+    drawPoints(
+        points = points1,
+        pointMode = PointMode.Polygon,
+        color = color,
+        strokeWidth = width,
+    )
+
+    val theta2 = 0.2f * time + 1f // Phase of fluctuation
+    val points2 = (0..nPoints).map { n -> Offset(
+        x = xA0 + xA1 * n + sin(0.12f * n - theta2) * (1f + n.toFloat() * 1.3f / nPoints),
+        y = yA0 + yA2 * n * n
+    ) }.filter { it.y in waterYRange }
+    drawPoints(
+        points = points2,
+        pointMode = PointMode.Polygon,
+        color = color,
+        strokeWidth = width,
+    )
+
+    // Additional line to make the spout look natural.
+    val startPoints = listOf(
+        start, start + Offset(10f, -3f),
+    ).filter { it.y in waterYRange }
+    drawPoints(
+        points = startPoints,
+        pointMode = PointMode.Polygon,
+        color = color,
+        strokeWidth = width,
+    )
 }
