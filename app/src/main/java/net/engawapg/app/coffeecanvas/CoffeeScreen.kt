@@ -14,6 +14,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.PointMode
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.res.imageResource
@@ -67,12 +68,10 @@ fun CoffeeScreen() {
 
 private class CoffeeTransitionData(
     potAngle: State<Float>,
-    waterTop: State<Float>,
-    waterBottom: State<Float>,
+    waterMask: State<Rect>,
 ) {
     val potAngle by potAngle
-    val waterTop by waterTop
-    val waterBottom by waterBottom
+    val waterMask by waterMask
 }
 
 @Composable
@@ -86,32 +85,29 @@ private fun updateCoffeeTransitionData(dripState: DripState): CoffeeTransitionDa
         if (state == DripState.POURING) -30f else 0f
     }
 
-    val waterTop = transition.animateFloat(
-        label = "WaterTopAnimation",
+    val waterMask = transition.animateRect(
+        label = "WaterRectAnimation",
         transitionSpec = {
-            if (DripState.POURING isTransitioningTo DripState.FINISHED)
-                tween(durationMillis = 250, easing = EaseInQuad)
-            else
-                snap()
+            when {
+                DripState.WAITING isTransitioningTo DripState.POURING ->
+                    tween(durationMillis = 250, delayMillis = 200, easing = EaseInQuad)
+                DripState.POURING isTransitioningTo DripState.FINISHED ->
+                    tween(durationMillis = 250, easing = EaseInQuad)
+                else ->
+                    snap()
+            }
         }
     ) { state ->
-        if (state == DripState.FINISHED) WATER_RECT.bottom else WATER_RECT.top - WATER_WIDTH
-    }
-
-    val waterBottom = transition.animateFloat(
-        label = "WaterBottomAnimation",
-        transitionSpec = {
-            if (DripState.WAITING isTransitioningTo DripState.POURING)
-                tween(durationMillis = 250, delayMillis = 200, easing = EaseInQuad)
-            else
-                snap()
+        val rect = WATER_RECT.inflate(10f)
+        when(state) {
+            DripState.WAITING -> rect.translate(0f, -rect.height)
+            DripState.POURING -> rect
+            DripState.FINISHED -> rect.translate(0f, rect.height)
         }
-    ) { state ->
-        if (state == DripState.WAITING) WATER_RECT.top - WATER_WIDTH else WATER_RECT.bottom
     }
 
     return remember(transition) {
-        CoffeeTransitionData(potAngle, waterTop, waterBottom)
+        CoffeeTransitionData(potAngle, waterMask)
     }
 }
 
@@ -182,47 +178,52 @@ private fun DrawScope.drawWaterFlow(
     transitionData: CoffeeTransitionData,
     time: Int
 ) {
-    // Draw a water flow. To create fluctuation in width, draw two lines with different phases.
-    val waterYRange = transitionData.waterTop .. transitionData.waterBottom
-    val nPoints = 30
-    // Definition of coefficients / A2 * n^2 + A1 * n + A0
-    val xA0 = start.x
-    val xA1 = (end.x - start.x) / nPoints
-    val yA0 = start.y
-    val yA2 = (end.y - start.y) / nPoints / nPoints
+    clipRect(top = transitionData.waterMask.top, bottom = transitionData.waterMask.bottom) {
+        // Draw a water flow. To create fluctuation in width, draw two lines with different phases.
+        val nPoints = 30
+        // Definition of coefficients / A2 * n^2 + A1 * n + A0
+        val xA0 = start.x
+        val xA1 = (end.x - start.x) / nPoints
+        val yA0 = start.y
+        val yA2 = (end.y - start.y) / nPoints / nPoints
 
-    val theta1 = 0.3f * time // Phase of fluctuation
-    val points1 = (0..nPoints).map { n -> Offset(
-        x = xA0 + xA1 * n + sin(0.3f * n - theta1) * (1f + n.toFloat() / nPoints),
-        y = yA0 + yA2 * n * n
-    ) }.filter { it.y in waterYRange }
-    drawPoints(
-        points = points1,
-        pointMode = PointMode.Polygon,
-        color = color,
-        strokeWidth = width,
-    )
+        val theta1 = 0.3f * time // Phase of fluctuation
+        val points1 = (0..nPoints).map { n ->
+            Offset(
+                x = xA0 + xA1 * n + sin(0.3f * n - theta1) * (1f + n.toFloat() / nPoints),
+                y = yA0 + yA2 * n * n
+            )
+        }
+        drawPoints(
+            points = points1,
+            pointMode = PointMode.Polygon,
+            color = color,
+            strokeWidth = width,
+        )
 
-    val theta2 = 0.2f * time + 1f // Phase of fluctuation
-    val points2 = (0..nPoints).map { n -> Offset(
-        x = xA0 + xA1 * n + sin(0.12f * n - theta2) * (1f + n.toFloat() * 1.3f / nPoints),
-        y = yA0 + yA2 * n * n
-    ) }.filter { it.y in waterYRange }
-    drawPoints(
-        points = points2,
-        pointMode = PointMode.Polygon,
-        color = color,
-        strokeWidth = width,
-    )
+        val theta2 = 0.2f * time + 1f // Phase of fluctuation
+        val points2 = (0..nPoints).map { n ->
+            Offset(
+                x = xA0 + xA1 * n + sin(0.12f * n - theta2) * (1f + n.toFloat() * 1.3f / nPoints),
+                y = yA0 + yA2 * n * n
+            )
+        }
+        drawPoints(
+            points = points2,
+            pointMode = PointMode.Polygon,
+            color = color,
+            strokeWidth = width,
+        )
 
-    // Additional line to make the spout look natural.
-    val startPoints = listOf(
-        start, start + Offset(10f, -3f),
-    ).filter { it.y in waterYRange }
-    drawPoints(
-        points = startPoints,
-        pointMode = PointMode.Polygon,
-        color = color,
-        strokeWidth = width,
-    )
+        // Additional line to make the spout look natural.
+        val startPoints = listOf(
+            start, start + Offset(10f, -3f),
+        )
+        drawPoints(
+            points = startPoints,
+            pointMode = PointMode.Polygon,
+            color = color,
+            strokeWidth = width,
+        )
+    }
 }
