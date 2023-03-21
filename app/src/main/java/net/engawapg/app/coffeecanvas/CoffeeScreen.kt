@@ -12,6 +12,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.geometry.center
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PointMode
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.clipRect
@@ -32,9 +33,13 @@ private val WATER_RECT = Rect(
     left = DRIPPER_RECT.center.x, right = POT_RECT.center.x
 )
 private val SERVER_RECT = Rect(Offset(26f, 500f), Size(226f, 150f))
+private val DROP_START = DRIPPER_RECT.bottomCenter
+private val DROP_END = Offset(DROP_START.x, SERVER_RECT.bottom)
 private const val WATER_WIDTH = 8f
+private const val COFFEE_WIDTH = 10f
 private val BG_COLOR = Color(0xffFFF6E9)
 private val WATER_COLOR = Color(0xffD1C9C7)
+private val COFFEE_COLOR = Color(0xff1D100C)
 
 internal fun Size.toInt() = IntSize(width.toInt(), height.toInt())
 internal fun Offset.toInt() = IntOffset(x.toInt(), y.toInt())
@@ -69,9 +74,11 @@ fun CoffeeScreen() {
 private class CoffeeTransitionData(
     potAngle: State<Float>,
     waterMask: State<Rect>,
+    droppingTime: State<Float>,
 ) {
     val potAngle by potAngle
     val waterMask by waterMask
+    val droppingTime by droppingTime
 }
 
 @Composable
@@ -106,8 +113,22 @@ private fun updateCoffeeTransitionData(dripState: DripState): CoffeeTransitionDa
         }
     }
 
+    val infiniteTransition = rememberInfiniteTransition()
+
+    val droppingTime = infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(
+                durationMillis = 1000,
+                easing = LinearEasing,
+            ),
+            repeatMode = RepeatMode.Restart,
+        )
+    )
+
     return remember(transition) {
-        CoffeeTransitionData(potAngle, waterMask)
+        CoffeeTransitionData(potAngle, waterMask, droppingTime)
     }
 }
 
@@ -144,6 +165,15 @@ fun CoffeeCanvas(dripState: DripState) {
                 color = WATER_COLOR,
                 transitionData = transitionData,
                 time = time
+            )
+
+            drawCoffeeDrops(
+                start = DROP_START,
+                end = DROP_END,
+                width = COFFEE_WIDTH,
+                color = COFFEE_COLOR,
+                transitionData = transitionData,
+                time = time,
             )
 
             rotate(
@@ -225,5 +255,40 @@ private fun DrawScope.drawWaterFlow(
             color = color,
             strokeWidth = width,
         )
+    }
+}
+
+private fun DrawScope.drawCoffeeDrops(
+    start: Offset,
+    end: Offset,
+    width: Float,
+    color: Color,
+    transitionData: CoffeeTransitionData,
+    time: Int
+) {
+    clipRect(top = start.y, bottom = end.y) {
+
+        val nPoints = 4
+        val yn = (0 until nPoints).map { n ->
+            val tTmp = transitionData.droppingTime - (n.toFloat() / nPoints)
+            val t = if (tTmp >= 0f) tTmp else 1f + tTmp
+            (end.y - start.y) * t * t
+        }
+        for (y in yn) {
+            val dropPath = Path().apply {
+                val r = 6f // Radius of the arc.
+                val t = 12f // distance from the center of the arc to the top.
+                val c1 = 4.8f // distance from the edge of the arc to the control point.
+                val c2 = 3f // distance from the top to the control point.
+                addArc(Rect(center = Offset.Zero, radius = r), 0f, 180f)
+                relativeCubicTo(0f, -c1, r, -(t - c2), r, -t)
+                relativeCubicTo(0f, c2, r, t - c1, r, t)
+                translate(Offset(start.x, start.y + y))
+            }
+            drawPath(
+                path = dropPath,
+                color = COFFEE_COLOR,
+            )
+        }
     }
 }
