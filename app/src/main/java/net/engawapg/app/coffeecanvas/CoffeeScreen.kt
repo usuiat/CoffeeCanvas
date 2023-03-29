@@ -36,7 +36,6 @@ private val SERVER_RECT = Rect(Offset(26f, 500f), Size(226f, 150f))
 private val DROP_START = DRIPPER_RECT.bottomCenter
 private val DROP_END = Offset(DROP_START.x, SERVER_RECT.bottom)
 private const val WATER_WIDTH = 8f
-private const val COFFEE_WIDTH = 10f
 private val BG_COLOR = Color(0xffFFF6E9)
 private val WATER_COLOR = Color(0xffD1C9C7)
 private val COFFEE_COLOR = Color(0xff1D100C)
@@ -74,11 +73,9 @@ fun CoffeeScreen() {
 private class CoffeeTransitionData(
     potAngle: State<Float>,
     waterMask: State<Rect>,
-    droppingTime: State<Float>,
 ) {
     val potAngle by potAngle
     val waterMask by waterMask
-    val droppingTime by droppingTime
 }
 
 @Composable
@@ -113,22 +110,8 @@ private fun updateCoffeeTransitionData(dripState: DripState): CoffeeTransitionDa
         }
     }
 
-    val infiniteTransition = rememberInfiniteTransition()
-
-    val droppingTime = infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(
-                durationMillis = 1000,
-                easing = LinearEasing,
-            ),
-            repeatMode = RepeatMode.Restart,
-        )
-    )
-
     return remember(transition) {
-        CoffeeTransitionData(potAngle, waterMask, droppingTime)
+        CoffeeTransitionData(potAngle, waterMask)
     }
 }
 
@@ -145,6 +128,31 @@ fun CoffeeCanvas(dripState: DripState) {
         while (true) {
             delay(20)
             time++
+        }
+    }
+
+    var dropTimes by remember { mutableStateOf(listOf<Long>()) }
+    val updatedDripState by rememberUpdatedState(dripState)
+    LaunchedEffect(true) {
+        var timePrev = withFrameMillis { it }
+        var times = listOf<Long>()
+        val delay = 800L
+        while (true) {
+            val t = withFrameMillis { it }
+            val timeDelta = t - timePrev
+            timePrev = t
+
+            times = times.map { it + timeDelta }.filter { it < (1000L + delay) }
+            if (updatedDripState == DripState.POURING) {
+                if (times.isEmpty()) {
+                    times = listOf(0L)
+                } else if (times.last() > 250L) {
+                    times = times + (times.last() - 250L)
+                }
+            }
+            if (dropTimes.isNotEmpty() or times.isNotEmpty()) {
+                dropTimes = times.map { it - delay }.filter { it >= 0L }
+            }
         }
     }
 
@@ -170,10 +178,7 @@ fun CoffeeCanvas(dripState: DripState) {
             drawCoffeeDrops(
                 start = DROP_START,
                 end = DROP_END,
-                width = COFFEE_WIDTH,
-                color = COFFEE_COLOR,
-                transitionData = transitionData,
-                time = time,
+                times = dropTimes,
             )
 
             rotate(
@@ -261,19 +266,11 @@ private fun DrawScope.drawWaterFlow(
 private fun DrawScope.drawCoffeeDrops(
     start: Offset,
     end: Offset,
-    width: Float,
-    color: Color,
-    transitionData: CoffeeTransitionData,
-    time: Int
+    times: List<Long>,
 ) {
     clipRect(top = start.y, bottom = end.y) {
-
-        val nPoints = 4
-        val yn = (0 until nPoints).map { n ->
-            val tTmp = transitionData.droppingTime - (n.toFloat() / nPoints)
-            val t = if (tTmp >= 0f) tTmp else 1f + tTmp
-            (end.y - start.y) * t * t
-        }
+        val a = (end.y - start.y) / 1_000_000.0f
+        val yn = times.map { t -> a * t * t }
         for (y in yn) {
             val dropPath = Path().apply {
                 val r = 6f // Radius of the arc.
