@@ -131,27 +131,31 @@ fun CoffeeCanvas(dripState: DripState) {
         }
     }
 
-    var dropTimes by remember { mutableStateOf(listOf<Long>()) }
-    val updatedDripState by rememberUpdatedState(dripState)
-    LaunchedEffect(true) {
-        var timePrev = withFrameMillis { it }
-        var times = listOf<Long>()
-        val delay = 800L
-        while (true) {
-            val t = withFrameMillis { it }
-            val timeDelta = t - timePrev
-            timePrev = t
+    var isDropping by remember { mutableStateOf(false) }
+    LaunchedEffect(dripState) {
+        delay(800)
+        isDropping = dripState == DripState.POURING
+    }
 
-            times = times.map { it + timeDelta }.filter { it < (1000L + delay) }
-            if (updatedDripState == DripState.POURING) {
-                if (times.isEmpty()) {
-                    times = listOf(0L)
-                } else if (times.last() > 250L) {
-                    times = times + (times.last() - 250L)
+    var dropTimes by remember { mutableStateOf(listOf<Long>()) }
+    val updatedDropping by rememberUpdatedState(isDropping)
+    LaunchedEffect(true) {
+        val times = mutableListOf<Long>()
+        val interval = 250L
+        val num = 5
+        while (true) {
+            withFrameMillis { t ->
+                if (updatedDropping) {
+                    if (times.isEmpty() || (t > times.last() + interval)) {
+                        times.add(t)
+                    }
                 }
-            }
-            if (dropTimes.isNotEmpty() or times.isNotEmpty()) {
-                dropTimes = times.map { it - delay }.filter { it >= 0L }
+                if (times.isNotEmpty() && (t > times.first() + (interval * num))) {
+                    times.removeAt(0)
+                }
+                if (dropTimes.isNotEmpty() || times.isNotEmpty()) {
+                    dropTimes = times.map { it - t }
+                }
             }
         }
     }
