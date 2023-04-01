@@ -22,6 +22,7 @@ import androidx.compose.ui.res.imageResource
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlin.math.min
 import kotlin.math.sin
 
@@ -39,6 +40,7 @@ private const val WATER_WIDTH = 8f
 private val BG_COLOR = Color(0xffFFF6E9)
 private val WATER_COLOR = Color(0xffD1C9C7)
 private val COFFEE_COLOR = Color(0xff1D100C)
+private const val COFFEE_LEVEL = 112f
 
 internal fun Size.toInt() = IntSize(width.toInt(), height.toInt())
 internal fun Offset.toInt() = IntOffset(x.toInt(), y.toInt())
@@ -121,6 +123,7 @@ fun CoffeeCanvas(dripState: DripState) {
     val potImage = ImageBitmap.imageResource(id = R.drawable.pot)
     val dripperImage = ImageBitmap.imageResource(id = R.drawable.dripper)
     val serverImage = ImageBitmap.imageResource(id = R.drawable.server)
+    val coffeeImage = ImageBitmap.imageResource(id = R.drawable.coffee_in_server)
 
     // Time counter for water flow physical simulation.
     var time by remember { mutableStateOf(0) }
@@ -137,6 +140,8 @@ fun CoffeeCanvas(dripState: DripState) {
         isDropping = dripState == DripState.POURING
     }
 
+    val coffeeLevel = remember { Animatable(0f) }
+
     var dropTimes by remember { mutableStateOf(listOf<Long>()) }
     val updatedDropping by rememberUpdatedState(isDropping)
     LaunchedEffect(true) {
@@ -152,6 +157,9 @@ fun CoffeeCanvas(dripState: DripState) {
                 }
                 if (times.isNotEmpty() && (t > times.first() + (interval * num))) {
                     times.removeAt(0)
+                    launch {
+                        coffeeLevel.animateTo(coffeeLevel.value + (COFFEE_LEVEL / 8 / 5))
+                    }
                 }
                 if (dropTimes.isNotEmpty() || times.isNotEmpty()) {
                     dropTimes = times.map { it - t }
@@ -200,6 +208,13 @@ fun CoffeeCanvas(dripState: DripState) {
                 dstOffset = DRIPPER_RECT.topLeft.toInt(),
                 dstSize = DRIPPER_RECT.size.toInt(),
             )
+            clipRect(top = SERVER_RECT.bottom - coffeeLevel.value) {
+                drawImage(
+                    image = coffeeImage,
+                    dstOffset = SERVER_RECT.topLeft.toInt(),
+                    dstSize = SERVER_RECT.size.toInt(),
+                )
+            }
             drawImage(
                 image = serverImage,
                 dstOffset = SERVER_RECT.topLeft.toInt(),
