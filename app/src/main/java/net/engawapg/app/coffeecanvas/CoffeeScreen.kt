@@ -117,6 +117,12 @@ private fun updateCoffeeTransitionData(dripState: DripState): CoffeeTransitionDa
     }
 }
 
+data class CoffeeDrop(
+    val startTime: Long,
+    var y: Float = 0f,
+    var reached: Boolean = false,
+)
+
 @Composable
 fun CoffeeCanvas(dripState: DripState) {
     val transitionData = updateCoffeeTransitionData(dripState = dripState)
@@ -140,29 +146,37 @@ fun CoffeeCanvas(dripState: DripState) {
         isDropping = dripState == DripState.POURING
     }
 
-    val coffeeLevel = remember { Animatable(0f) }
+    val coffeeLevel = remember { Animatable(SERVER_RECT.height) }
 
-    var dropTimes by remember { mutableStateOf(listOf<Long>()) }
+    var dropYn by remember { mutableStateOf(listOf<Float>()) }
     val updatedDropping by rememberUpdatedState(isDropping)
     LaunchedEffect(true) {
-        val times = mutableListOf<Long>()
+//        val times = mutableListOf<Long>()
         val interval = 250L
         val num = 5
+        val a = (DROP_END.y - DROP_START.y) / 1_000_000.0f
+        val drops = mutableListOf<CoffeeDrop>()
         while (true) {
             withFrameMillis { t ->
                 if (updatedDropping) {
-                    if (times.isEmpty() || (t > times.last() + interval)) {
-                        times.add(t)
+                    if (drops.isEmpty() || (t > drops.last().startTime + interval)) {
+                        drops.add(CoffeeDrop(t))
                     }
                 }
-                if (times.isNotEmpty() && (t > times.first() + (interval * num))) {
-                    times.removeAt(0)
-                    launch {
-                        coffeeLevel.animateTo(coffeeLevel.value + (COFFEE_LEVEL / 8 / 5))
+                if (drops.isNotEmpty() && (t > drops.first().startTime + (interval * num))) {
+                    drops.removeAt(0)
+                }
+                drops.forEach {
+                    it.y = a * (it.startTime - t) * (it.startTime - t)
+                    if (!it.reached && (it.y > coffeeLevel.value)) {
+                        it.reached = true
+                        launch {
+                            coffeeLevel.animateTo(coffeeLevel.value - (COFFEE_LEVEL / 8 / 5))
+                        }
                     }
                 }
-                if (dropTimes.isNotEmpty() || times.isNotEmpty()) {
-                    dropTimes = times.map { it - t }
+                if (dropYn.isNotEmpty() || drops.isNotEmpty()) {
+                    dropYn = drops.map { a * (it.startTime - t) * (it.startTime - t) }
                 }
             }
         }
@@ -190,7 +204,7 @@ fun CoffeeCanvas(dripState: DripState) {
             drawCoffeeDrops(
                 start = DROP_START,
                 end = DROP_END,
-                times = dropTimes,
+                yn = dropYn,
             )
 
             rotate(
@@ -208,7 +222,7 @@ fun CoffeeCanvas(dripState: DripState) {
                 dstOffset = DRIPPER_RECT.topLeft.toInt(),
                 dstSize = DRIPPER_RECT.size.toInt(),
             )
-            clipRect(top = SERVER_RECT.bottom - coffeeLevel.value) {
+            clipRect(top = SERVER_RECT.top + coffeeLevel.value) {
                 drawImage(
                     image = coffeeImage,
                     dstOffset = SERVER_RECT.topLeft.toInt(),
@@ -285,11 +299,9 @@ private fun DrawScope.drawWaterFlow(
 private fun DrawScope.drawCoffeeDrops(
     start: Offset,
     end: Offset,
-    times: List<Long>,
+    yn: List<Float>,
 ) {
     clipRect(top = start.y, bottom = end.y) {
-        val a = (end.y - start.y) / 1_000_000.0f
-        val yn = times.map { t -> a * t * t }
         for (y in yn) {
             val dropPath = Path().apply {
                 val r = 6f // Radius of the arc.
