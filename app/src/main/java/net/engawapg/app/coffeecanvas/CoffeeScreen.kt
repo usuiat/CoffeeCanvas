@@ -131,15 +131,6 @@ fun CoffeeCanvas(dripState: DripState) {
     val serverImage = ImageBitmap.imageResource(id = R.drawable.server)
     val coffeeImage = ImageBitmap.imageResource(id = R.drawable.coffee_in_server)
 
-    // Time counter for water flow physical simulation.
-    var time by remember { mutableStateOf(0) }
-    LaunchedEffect(true) {
-        while (true) {
-            delay(20)
-            time++
-        }
-    }
-
     var isDropping by remember { mutableStateOf(false) }
     LaunchedEffect(dripState) {
         delay(800)
@@ -150,7 +141,7 @@ fun CoffeeCanvas(dripState: DripState) {
 
     var dropYn by remember { mutableStateOf(listOf<Float>()) }
     val updatedDropping by rememberUpdatedState(isDropping)
-    var time2 by remember { mutableStateOf(0L) }
+    var time by remember { mutableStateOf(0L) }
     var landingTimes by remember { mutableStateOf(listOf<Long>()) }
     LaunchedEffect(true) {
         val interval = 250L
@@ -159,7 +150,7 @@ fun CoffeeCanvas(dripState: DripState) {
         val drops = mutableListOf<CoffeeDrop>()
         while (true) {
             withFrameMillis { t ->
-                time2 = t
+                time = t
                 if (updatedDropping) {
                     if (drops.isEmpty() || (t > drops.last().startTime + interval)) {
                         drops.add(CoffeeDrop(t))
@@ -237,7 +228,7 @@ fun CoffeeCanvas(dripState: DripState) {
             val points = (0 .. nPoints).map { n ->
                 var y = yBase
                 for (lt in landingTimes) {
-                    val t = max(0, time2 - lt - (n * 1000 / nPoints))
+                    val t = max(0, time - lt - (n * 1000 / nPoints))
                     val amp = 2f * max(0, 2000 - t) / 2000f
                     y -= amp * sin(omega * t)
                 }
@@ -276,7 +267,7 @@ private fun DrawScope.drawWaterFlow(
     width: Float,
     color: Color,
     transitionData: CoffeeTransitionData,
-    time: Int
+    time: Long
 ) {
     clipRect(top = transitionData.waterMask.top, bottom = transitionData.waterMask.bottom) {
         // Draw a water flow. To create fluctuation in width, draw two lines with different phases.
@@ -287,7 +278,7 @@ private fun DrawScope.drawWaterFlow(
         val yA0 = start.y
         val yA2 = (end.y - start.y) / nPoints / nPoints
 
-        val theta1 = 0.3f * time // Phase of fluctuation
+        val theta1 = 0.015f * time // Phase of fluctuation
         val points1 = (0..nPoints).map { n ->
             Offset(
                 x = xA0 + xA1 * n + sin(0.3f * n - theta1) * (1f + n.toFloat() / nPoints),
@@ -301,7 +292,7 @@ private fun DrawScope.drawWaterFlow(
             strokeWidth = width,
         )
 
-        val theta2 = 0.2f * time + 1f // Phase of fluctuation
+        val theta2 = 0.01f * time + 1f // Phase of fluctuation
         val points2 = (0..nPoints).map { n ->
             Offset(
                 x = xA0 + xA1 * n + sin(0.12f * n - theta2) * (1f + n.toFloat() * 1.3f / nPoints),
