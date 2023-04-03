@@ -23,8 +23,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlin.math.min
-import kotlin.math.sin
+import kotlin.math.*
 
 private val FRAME_SIZE = Size(500f, 650f)
 private val POT_RECT = Rect(Offset(-110f, -10f), Size(558f, 374f))
@@ -147,18 +146,20 @@ fun CoffeeCanvas(dripState: DripState) {
         isDropping = dripState == DripState.POURING
     }
 
-    val coffeeLevel = remember { Animatable(SERVER_RECT.height) }
+    val coffeeLevel = remember { Animatable(SERVER_RECT.height - 4) }
 
     var dropYn by remember { mutableStateOf(listOf<Float>()) }
     val updatedDropping by rememberUpdatedState(isDropping)
+    var time2 by remember { mutableStateOf(0L) }
+    var landingTimes by remember { mutableStateOf(listOf<Long>()) }
     LaunchedEffect(true) {
-//        val times = mutableListOf<Long>()
         val interval = 250L
         val num = 5
         val a = (DROP_END.y - DROP_START.y) / 1_000_000.0f
         val drops = mutableListOf<CoffeeDrop>()
         while (true) {
             withFrameMillis { t ->
+                time2 = t
                 if (updatedDropping) {
                     if (drops.isEmpty() || (t > drops.last().startTime + interval)) {
                         drops.add(CoffeeDrop(t))
@@ -174,6 +175,7 @@ fun CoffeeCanvas(dripState: DripState) {
                         launch {
                             coffeeLevel.animateTo(coffeeLevel.value - (COFFEE_LEVEL / 8 / 5))
                         }
+                        landingTimes = listOf(t) + if (landingTimes.size == 5) landingTimes.dropLast(1) else landingTimes
                     }
                 }
                 if (dropYn.isNotEmpty() || drops.isNotEmpty()) {
@@ -207,12 +209,6 @@ fun CoffeeCanvas(dripState: DripState) {
                 time = time
             )
 
-            drawCoffeeDrops(
-                start = DROP_START,
-                end = DROP_END,
-                yn = dropYn,
-            )
-
             rotate(
                 degrees = transitionData.potAngle,
                 pivot = POT_RECT.center
@@ -228,13 +224,43 @@ fun CoffeeCanvas(dripState: DripState) {
                 dstOffset = DRIPPER_RECT.topLeft.toInt(),
                 dstSize = DRIPPER_RECT.size.toInt(),
             )
-            clipRect(top = SERVER_RECT.top + coffeeLevel.value) {
-                drawImage(
-                    image = coffeeImage,
-                    dstOffset = SERVER_RECT.topLeft.toInt(),
-                    dstSize = SERVER_RECT.size.toInt(),
-                )
+            drawImage(
+                image = coffeeImage,
+                dstOffset = SERVER_RECT.topLeft.toInt(),
+                dstSize = SERVER_RECT.size.toInt(),
+            )
+
+            val yBase = SERVER_RECT.top + coffeeLevel.value
+            val nPoints = 20
+            val dx = SERVER_RECT.width / 2 / nPoints
+            val omega = 2f * PI.toFloat() / 300
+            val points = (0 .. nPoints).map { n ->
+                var y = yBase
+                for (lt in landingTimes) {
+                    val t = max(0, time2 - lt - (n * 1000 / nPoints))
+                    val amp = 2f * max(0, 2000 - t) / 2000f
+                    y -= amp * sin(omega * t)
+                }
+                Offset(dx * n, y)
             }
+            val path = Path().apply {
+                moveTo(DROP_START.x - points.last().x, SERVER_RECT.top)
+                points.reversed().forEach { lineTo(DROP_START.x - it.x, it.y)}
+                points.forEach { lineTo(DROP_START.x + it.x, it.y) }
+                lineTo(DROP_START.x + points.last().x, SERVER_RECT.top)
+                close()
+            }
+            drawPath(
+                path = path,
+                color = BG_COLOR,
+            )
+
+            drawCoffeeDrops(
+                start = DROP_START,
+                end = DROP_END,
+                yn = dropYn,
+            )
+
             drawImage(
                 image = serverImage,
                 dstOffset = SERVER_RECT.topLeft.toInt(),
