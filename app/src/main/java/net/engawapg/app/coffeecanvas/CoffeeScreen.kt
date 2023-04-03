@@ -39,8 +39,7 @@ private const val WATER_WIDTH = 8f
 private val BG_COLOR = Color(0xffFFF6E9)
 private val WATER_COLOR = Color(0xffD1C9C7)
 private val COFFEE_COLOR = Color(0xff1D100C)
-private const val COFFEE_LEVEL = 112f
-private const val COFFEE_LEVEL_FULL = 38f
+private const val COFFEE_LEVEL = 107f
 
 internal fun Size.toInt() = IntSize(width.toInt(), height.toInt())
 internal fun Offset.toInt() = IntOffset(x.toInt(), y.toInt())
@@ -172,7 +171,7 @@ fun CoffeeCanvas(dripState: DripState) {
                 if (dropYn.isNotEmpty() || drops.isNotEmpty()) {
                     dropYn = drops.map { a * (it.startTime - t) * (it.startTime - t) }
                 }
-                if (!updatedDropping && dropYn.isEmpty() && (coffeeLevel.value < COFFEE_LEVEL_FULL)) {
+                if (!updatedDropping && dropYn.isEmpty() && (coffeeLevel.value < (SERVER_RECT.height - COFFEE_LEVEL))) {
                     launch {
                         coffeeLevel.snapTo(SERVER_RECT.height)
                     }
