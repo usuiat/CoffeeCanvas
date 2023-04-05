@@ -121,7 +121,7 @@ fun CoffeeCanvas(pouring: Boolean) {
                         launch {
                             coffeeLevel.animateTo(coffeeLevel.value - (COFFEE_LEVEL / 8 / 5))
                         }
-                        landingTimes = listOf(t) + if (landingTimes.size == 5) landingTimes.dropLast(1) else landingTimes
+                        landingTimes = listOf(t) + if (landingTimes.size == num) landingTimes.dropLast(1) else landingTimes
                     }
                 }
                 if (dropYn.isNotEmpty() || drops.isNotEmpty()) {
@@ -177,29 +177,10 @@ fun CoffeeCanvas(pouring: Boolean) {
                 dstSize = SERVER_RECT.size.toInt(),
             )
 
-            val yBase = SERVER_RECT.top + coffeeLevel.value
-            val nPoints = 20
-            val dx = SERVER_RECT.width / 2 / nPoints
-            val omega = 2f * PI.toFloat() / 300
-            val points = (0 .. nPoints).map { n ->
-                var y = yBase
-                for (lt in landingTimes) {
-                    val t = max(0, time - lt - (n * 1000 / nPoints))
-                    val amp = 2f * max(0, 2000 - t) / 2000f
-                    y -= amp * sin(omega * t)
-                }
-                Offset(dx * n, y)
-            }
-            val path = Path().apply {
-                moveTo(DROP_START.x - points.last().x, SERVER_RECT.top)
-                points.reversed().forEach { lineTo(DROP_START.x - it.x, it.y)}
-                points.forEach { lineTo(DROP_START.x + it.x, it.y) }
-                lineTo(DROP_START.x + points.last().x, SERVER_RECT.top)
-                close()
-            }
-            drawPath(
-                path = path,
-                color = BG_COLOR,
+            drawCoffeeSurface(
+                coffeeLevel = coffeeLevel.value,
+                landingTimes = landingTimes,
+                time = time,
             )
 
             drawCoffeeDrops(
@@ -282,6 +263,40 @@ private fun DrawScope.drawWaterFlow(
             strokeWidth = width,
         )
     }
+}
+
+private fun DrawScope.drawCoffeeSurface(
+    coffeeLevel: Float,
+    landingTimes: List<Long>,
+    time: Long,
+) {
+    val yBase = SERVER_RECT.top + coffeeLevel
+    val nPoints = 20
+    val dx = SERVER_RECT.width / 2 / nPoints
+    val omega = 2f * PI.toFloat() / 300
+    val decayTime = 2000
+    val arrivalTime = 1000
+
+    val points = (0 .. nPoints).map { n ->
+        var y = yBase
+        for (lt in landingTimes) {
+            val t = max(0, time - lt - (n * arrivalTime / nPoints))
+            val amp = 2f * max(0, decayTime - t).toFloat() / decayTime
+            y -= amp * sin(omega * t)
+        }
+        Offset(dx * n, y)
+    }
+    val path = Path().apply {
+        moveTo(DROP_START.x - points.last().x, SERVER_RECT.top)
+        points.reversed().forEach { lineTo(DROP_START.x - it.x, it.y)}
+        points.forEach { lineTo(DROP_START.x + it.x, it.y) }
+        lineTo(DROP_START.x + points.last().x, SERVER_RECT.top)
+        close()
+    }
+    drawPath(
+        path = path,
+        color = BG_COLOR,
+    )
 }
 
 private fun DrawScope.drawCoffeeDrops(
