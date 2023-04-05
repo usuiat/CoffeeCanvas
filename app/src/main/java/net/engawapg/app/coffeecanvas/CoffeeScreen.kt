@@ -44,53 +44,17 @@ private const val COFFEE_LEVEL = 107f
 internal fun Size.toInt() = IntSize(width.toInt(), height.toInt())
 internal fun Offset.toInt() = IntOffset(x.toInt(), y.toInt())
 
-enum class DripState {
-    WAITING,
-    POURING,
-    FINISHED,
-}
-
 @Composable
 fun CoffeeScreen() {
-    var dripState by remember { mutableStateOf(DripState.WAITING) }
+    var pouring by remember { mutableStateOf(false) }
     LaunchedEffect(true) {
-        var counter = 0
+        delay(1000)
         while (true) {
-            delay(1000)
-            counter++
-            when(counter) {
-                1 -> dripState = DripState.POURING
-                3 -> dripState = DripState.FINISHED
-                4 -> {
-                    dripState = DripState.WAITING
-                    counter = 0
-                }
-            }
+            pouring = !pouring
+            delay(2000)
         }
     }
-    CoffeeCanvas(dripState)
-}
-
-private class CoffeeTransitionData(
-    potAngle: State<Float>,
-) {
-    val potAngle by potAngle
-}
-
-@Composable
-private fun updateCoffeeTransitionData(dripState: DripState): CoffeeTransitionData {
-    val transition = updateTransition(dripState, "DripStateTransition")
-
-    val potAngle = transition.animateFloat(
-        label = "PotAngleAnimation",
-        transitionSpec = { tween(500) }
-    ) { state ->
-        if (state == DripState.POURING) -30f else 0f
-    }
-
-    return remember(transition) {
-        CoffeeTransitionData(potAngle)
-    }
+    CoffeeCanvas(pouring)
 }
 
 data class CoffeeDrop(
@@ -100,26 +64,29 @@ data class CoffeeDrop(
 )
 
 @Composable
-fun CoffeeCanvas(dripState: DripState) {
-    val transitionData = updateCoffeeTransitionData(dripState = dripState)
+fun CoffeeCanvas(pouring: Boolean) {
+    val potAngle: Float by animateFloatAsState(
+        targetValue = if (pouring) -30f else 0f,
+        animationSpec = tween(500),
+    )
     val potImage = ImageBitmap.imageResource(id = R.drawable.pot)
     val dripperImage = ImageBitmap.imageResource(id = R.drawable.dripper)
     val serverImage = ImageBitmap.imageResource(id = R.drawable.server)
     val coffeeImage = ImageBitmap.imageResource(id = R.drawable.coffee_in_server)
 
-    var isDropping by remember { mutableStateOf(false) }
-    LaunchedEffect(dripState) {
+    var dropping by remember { mutableStateOf(false) }
+    LaunchedEffect(pouring) {
         delay(800)
-        isDropping = dripState == DripState.POURING
+        dropping = pouring
     }
+    val updatedDropping by rememberUpdatedState(dropping)
+    val updatedPouring by rememberUpdatedState(pouring)
 
     val coffeeLevel = remember { Animatable(SERVER_RECT.height - 4) }
 
     var dropYn by remember { mutableStateOf(listOf<Float>()) }
-    val updatedDropping by rememberUpdatedState(isDropping)
     var time by remember { mutableStateOf(0L) }
     var landingTimes by remember { mutableStateOf(listOf<Long>()) }
-    val updatedDripState by rememberUpdatedState(dripState)
     var startPouringTime by remember { mutableStateOf(Long.MAX_VALUE) }
     var stopPouringTime by remember { mutableStateOf(0L) }
     LaunchedEffect(true) {
@@ -127,18 +94,17 @@ fun CoffeeCanvas(dripState: DripState) {
         val num = 5
         val a = (DROP_END.y - DROP_START.y) / 1_000_000.0f
         val drops = mutableListOf<CoffeeDrop>()
-        var prevDripState = updatedDripState
+        var prevPouring = updatedPouring
         while (true) {
             withFrameMillis { t ->
                 time = t
-                if (updatedDripState != prevDripState) {
-                    if (updatedDripState == DripState.POURING) {
+                if (updatedPouring != prevPouring) {
+                    if (updatedPouring) {
                         startPouringTime = t
-                    }
-                    if (updatedDripState == DripState.FINISHED) {
+                    } else {
                         stopPouringTime = t
                     }
-                    prevDripState = updatedDripState
+                    prevPouring = updatedPouring
                 }
                 if (updatedDropping) {
                     if (drops.isEmpty() || (t > drops.last().startTime + interval)) {
@@ -191,7 +157,7 @@ fun CoffeeCanvas(dripState: DripState) {
             )
 
             rotate(
-                degrees = transitionData.potAngle,
+                degrees = potAngle,
                 pivot = POT_RECT.center
             ) {
                 drawImage(
