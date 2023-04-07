@@ -10,10 +10,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.geometry.center
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.PointMode
+import androidx.compose.ui.graphics.*
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.drawscope.rotate
@@ -89,6 +86,7 @@ fun CoffeeCanvas(pouring: Boolean) {
     var landingTimes by remember { mutableStateOf(listOf<Long>()) }
     var startPouringTime by remember { mutableStateOf(Long.MAX_VALUE) }
     var stopPouringTime by remember { mutableStateOf(0L) }
+    var startSteamTime by remember { mutableStateOf(Long.MAX_VALUE) }
     LaunchedEffect(true) {
         val interval = 250L
         val num = 5
@@ -101,6 +99,7 @@ fun CoffeeCanvas(pouring: Boolean) {
                 if (updatedPouring != prevPouring) {
                     if (updatedPouring) {
                         startPouringTime = t
+                        startSteamTime = t + 700
                     } else {
                         stopPouringTime = t
                     }
@@ -166,6 +165,9 @@ fun CoffeeCanvas(pouring: Boolean) {
                     dstSize = POT_RECT.size.toInt(),
                 )
             }
+
+            drawSteam(t = time - startSteamTime)
+
             drawImage(
                 image = dripperImage,
                 dstOffset = DRIPPER_RECT.topLeft.toInt(),
@@ -261,6 +263,50 @@ private fun DrawScope.drawWaterFlow(
             pointMode = PointMode.Polygon,
             color = color,
             strokeWidth = width,
+        )
+    }
+}
+
+private fun DrawScope.drawSteam(
+    t: Long,
+) {
+    if (t < 0) {
+        return
+    }
+    val nSteam = 3
+    val nPoints = 30
+    val amp = 8f
+    val omega = 8f / nPoints
+    val length = 170f
+    val height = 200f
+    val duration = 1500
+    val startPoint = DRIPPER_RECT.topCenter
+
+    val alpha = when {
+        t < 300 -> t / 300f
+        t < 1000 -> 1f
+        t < 1800 -> 1f - (t - 1000) / 800f
+        else -> 0f
+    }
+
+    val points = (0 until nPoints).map { n ->
+        Offset(
+            x = startPoint.x + amp * sin(omega * (n - (t / 100f))),
+            y = startPoint.y - (length / nPoints * n) - height * t / duration
+        )
+    }
+
+    for (iSteam in 0 until nSteam) {
+        drawPoints(
+            points = points.map { it + Offset((iSteam * 45f) - 45f, 0f) },
+            pointMode = PointMode.Polygon,
+            brush = Brush.linearGradient(
+                colors = listOf(Color.Transparent, WATER_COLOR, Color.Transparent),
+                start = points.first(),
+                end = points.last()
+            ),
+            strokeWidth = 5f,
+            alpha = alpha,
         )
     }
 }
